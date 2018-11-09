@@ -1,0 +1,3 @@
+[submodule "concurrency-stlab/thirdparty/stlablibs"]
+	path = concurrency-stlab/thirdparty/stlablibs
+	url = https://github.com/stlab/libraries.git
