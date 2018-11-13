@@ -4,7 +4,6 @@
 #include <thread>
 #include <iostream>
 #include <numeric>
-#include <atomic>
 #include <algorithm>
 
 namespace {
@@ -26,23 +25,21 @@ int main() {
     std::tie(send, receive) = stlab::channel<Image>(stlab::default_executor);
 
     // Setup the processing tree.
-    std::atomic_int v {0};
     auto result = receive | [](Image image) { return ImagePlus3(image); }
                           | [](Image image) { return std::accumulate(std::cbegin(image.data), std::cend(image.data), 0); }
-                          | [&v](int x) { v = x; };
+                          | [](int x) { std::cout << x << "\n"; };
 
     receive.set_ready();
 
     // Do one calculation using the processing tree
     Image image;
     image.data = { 0, 1, 2, 3, 4 };
+    Image image2;
+    image2.data = { 0, 0, 0 };
     send(image);
+    send(image2);
 
-    while(v == 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    std::cout << v << "\n"; // 25
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     return 0;
 }
