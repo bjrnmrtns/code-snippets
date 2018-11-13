@@ -29,9 +29,9 @@ int main() {
     std::tie(send, receive) = stlab::channel<Image>(stlab::default_executor);
 
     // Setup the processing tree.
-    auto result = receive | [](Image image) { return ImagePlus3(image); }
-                          | [](Image image) { return ImageSum(image); }
-                          | [](int x) { std::cout << x << "\n"; };
+    auto result = receive | [](auto image) { return ImagePlus3(image); }
+                          | [](auto image) { return ImageSum(image); }
+                          | [](auto x) { std::cout << x << "\n"; };
 
     receive.set_ready();
 
