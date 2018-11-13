@@ -17,6 +17,10 @@ namespace {
                 [](unsigned char p) { return p + 3; });
         return output;
     }
+
+    auto ImageSum(Image image) {
+        return std::accumulate(std::cbegin(image.data), std::cend(image.data), 0);
+    }
 }
 
 int main() {
@@ -26,7 +30,7 @@ int main() {
 
     // Setup the processing tree.
     auto result = receive | [](Image image) { return ImagePlus3(image); }
-                          | [](Image image) { return std::accumulate(std::cbegin(image.data), std::cend(image.data), 0); }
+                          | [](Image image) { return ImageSum(image); }
                           | [](int x) { std::cout << x << "\n"; };
 
     receive.set_ready();
