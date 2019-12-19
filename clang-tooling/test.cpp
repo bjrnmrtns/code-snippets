@@ -1,14 +1,16 @@
-struct A {
-    int x;
+struct bmystruct {
+    int bmembervar;
+    void bdomember() {};
 };
 
-int tobecalled(int a)
+int bfreefunction(int bparam)
 {
-    return a;
+    return bparam;
 }
 
 int func()
 {
-    A a { 3 };
-    return tobecalled(3);
+    bmystruct blocalvar { 3 };
+    blocalvar.bdomember();
+    return bfreefunction(3);
 }
