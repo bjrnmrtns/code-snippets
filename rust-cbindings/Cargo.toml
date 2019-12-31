@@ -1,0 +1,10 @@
+[package]
+name = "bor"
+version = "0.1.0"
+authors = ["Bjorn Martens <bjorn@expeditious.nl>"]
+edition = "2018"
+
+[dependencies]
+
+[dependencies.bor-sys]
+path = "bor-sys"
