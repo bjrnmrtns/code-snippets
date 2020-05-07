@@ -7,14 +7,53 @@ use winit::{
 mod graphics {
     use winit::window::Window;
 
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug)]
+    struct Vertex {
+        position: [f32; 3],
+        color: [f32; 3],
+    }
+
+    unsafe impl bytemuck::Pod for Vertex {}
+    unsafe impl bytemuck::Zeroable for Vertex {}
+
+    impl Vertex {
+        fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a> {
+            use std::mem;
+            wgpu::VertexBufferDescriptor {
+                stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::InputStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttributeDescriptor {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float3,
+                    },
+                    wgpu::VertexAttributeDescriptor {
+                        offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float3,
+                    },
+                ]
+            }
+        }
+    }
+
+
+    const VERTICES: &[Vertex] = &[
+        Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
+        Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
+        Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+    ];
+
     pub struct State {
         surface: wgpu::Surface,
-        adapter: wgpu::Adapter,
         device: wgpu::Device,
         queue: wgpu::Queue,
         sc_descriptor: wgpu::SwapChainDescriptor,
         swap_chain: wgpu::SwapChain,
         render_pipeline: wgpu::RenderPipeline,
+        vertex_buffer: wgpu::Buffer,
         window_size: winit::dpi::PhysicalSize<u32>,
     }
 
@@ -71,21 +110,23 @@ mod graphics {
                 depth_stencil_state: None,
                 vertex_state: wgpu::VertexStateDescriptor {
                     index_format: wgpu::IndexFormat::Uint16,
-                    vertex_buffers: &[],
+                    vertex_buffers: &[Vertex::desc()],
                 },
                 sample_count: 1,
                 sample_mask: !0,
                 alpha_to_coverage_enabled: false,
             });
 
+            let vertex_buffer = device.create_buffer_with_data(bytemuck::cast_slice(VERTICES), wgpu::BufferUsage::VERTEX);
+
             Self {
                 surface,
-                adapter,
                 device,
                 queue,
                 sc_descriptor,
                 swap_chain,
                 render_pipeline,
+                vertex_buffer,
                 window_size: window.inner_size(),
             }
         }
@@ -121,7 +162,8 @@ mod graphics {
                     depth_stencil_attachment: None,
                 });
                 render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.draw(0..3, 0..1);
+                render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
+                render_pass.draw(0..VERTICES.len() as u32, 0..1);
             }
             self.queue.submit(&[encoder.finish()]);
         }
