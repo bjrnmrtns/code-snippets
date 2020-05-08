@@ -7,6 +7,37 @@ use winit::{
 mod graphics {
     use winit::window::Window;
     use image::GenericImageView;
+    use cgmath::SquareMatrix;
+
+    pub struct Camera {
+        eye: cgmath::Point3<f32>,
+        target: cgmath::Point3<f32>,
+        up: cgmath::Vector3<f32>,
+        aspect: f32,
+        fovy: f32,
+        znear: f32,
+        zfar: f32,
+    }
+
+    impl Camera {
+        fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+            // 1.
+            let view = cgmath::Matrix4::look_at(self.eye, self.target, self.up);
+            // 2.
+            let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+
+            // 3.
+            return OPENGL_TO_WGPU_MATRIX * proj * view;
+        }
+    }
+
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 0.5, 0.0,
+        0.0, 0.0, 0.5, 1.0,
+    );
 
     pub struct Texture {
         pub texture: wgpu::Texture,
@@ -18,7 +49,6 @@ mod graphics {
         pub fn new(device: &wgpu::Device, bytes: &[u8]) -> (Self, wgpu::CommandBuffer) {
             let diffuse_image = image::load_from_memory(bytes).unwrap();
             let diffuse_rgba = diffuse_image.as_rgba8().unwrap();
-            let dimensions = diffuse_image.dimensions();
             let size = wgpu::Extent3d {
                 width: diffuse_image.dimensions().0,
                 height: diffuse_image.dimensions().1,
@@ -105,6 +135,26 @@ mod graphics {
         }
     }
 
+    #[repr(C)]
+    #[derive(Debug, Copy, Clone)]
+    pub struct Uniforms {
+        view: cgmath::Matrix4<f32>,
+    }
+
+    unsafe impl bytemuck::Pod for Uniforms {}
+    unsafe impl bytemuck::Zeroable for Uniforms {}
+
+    impl Uniforms {
+        pub fn new() -> Self {
+            Self {
+                view: cgmath::Matrix4::identity(),
+            }
+        }
+        pub fn update_view(&mut self, camera: &Camera) {
+            self.view = camera.build_view_projection_matrix();
+        }
+    }
+
     const VERTICES: &[Vertex] = &[
         Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_coords: [0.4131759, 0.99240386], }, // A
         Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_coords: [0.0048659444, 0.56958646], }, // B
@@ -130,6 +180,10 @@ mod graphics {
         index_buffer: wgpu::Buffer,
         texture: Texture,
         diffuse_bind_group: wgpu::BindGroup,
+        camera: Camera,
+        uniforms: Uniforms,
+        uniform_buffer: wgpu::Buffer,
+        uniform_bind_group: wgpu::BindGroup,
         window_size: winit::dpi::PhysicalSize<u32>,
     }
 
@@ -200,9 +254,53 @@ mod graphics {
                 label: Some("diffuse_bind_group"),
             });
 
-            let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&texture_bind_group_layout],
+            let camera = Camera {
+                eye: (0.0, 1.0, 2.0).into(),
+                target: (0.0, 0.0, 0.0).into(),
+                up: cgmath::Vector3::unit_y(),
+                aspect: sc_descriptor.width as f32 / sc_descriptor.height as f32,
+                fovy: 45.0,
+                znear: 0.1,
+                zfar: 100.0,
+            };
+
+            let mut uniforms = Uniforms::new();
+            uniforms.update_view(&camera);
+
+            let uniform_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&[uniforms]),
+                wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST);
+            let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                bindings: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStage::VERTEX,
+                        ty: wgpu::BindingType::UniformBuffer {
+                            dynamic: false,
+                        },
+                    }
+                ],
+                label: Some("uniform_bind_group_layout"),
             });
+
+            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &uniform_bind_group_layout,
+                bindings: &[
+                    wgpu::Binding {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer {
+                            buffer: &uniform_buffer,
+                            // FYI: you can share a single buffer between bindings.
+                            range: 0..std::mem::size_of_val(&uniforms) as wgpu::BufferAddress,
+                        }
+                    }
+                ],
+                label: Some("uniform_bind_group"),
+            });
+
+            let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
+            });
+
             let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 layout: &render_pipeline_layout,
                 vertex_stage: wgpu::ProgrammableStageDescriptor {
@@ -250,6 +348,10 @@ mod graphics {
                 index_buffer,
                 texture,
                 diffuse_bind_group,
+                camera,
+                uniforms,
+                uniform_buffer,
+                uniform_bind_group,
                 window_size: window.inner_size(),
             }
         }
@@ -288,6 +390,7 @@ mod graphics {
                 render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
                 render_pass.set_index_buffer(&self.index_buffer, 0 ,0);
                 render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
 //                render_pass.draw(0..VERTICES.len() as u32, 0..1);
                 render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
             }
