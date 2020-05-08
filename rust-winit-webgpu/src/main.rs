@@ -169,6 +169,15 @@ mod graphics {
         2, 3, 4,
     ];
 
+    #[repr(C)]
+    #[derive(Debug, Copy, Clone)]
+    pub struct Instance {
+        model: cgmath::Matrix4<f32>,
+    }
+
+    unsafe impl bytemuck::Pod for Instance {}
+    unsafe impl bytemuck::Zeroable for Instance {}
+
     pub struct State {
         surface: wgpu::Surface,
         device: wgpu::Device,
@@ -181,6 +190,7 @@ mod graphics {
         texture: Texture,
         diffuse_bind_group: wgpu::BindGroup,
         camera: Camera,
+        instance_buffer: wgpu::Buffer,
         uniforms: Uniforms,
         uniform_buffer: wgpu::Buffer,
         uniform_bind_group: wgpu::BindGroup,
@@ -268,7 +278,12 @@ mod graphics {
             uniforms.update_view(&camera);
 
             let uniform_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&[uniforms]),
-                wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST);
+                                                                wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST);
+
+            let instances = [Instance { model: cgmath::Matrix4::identity(), }, Instance { model: cgmath::Matrix4::from_translation(cgmath::Vector3 { x: 0.2 as f32, y: 0.2 as f32, z: 0.0 as f32}), }];
+            let instances_buffer_size = instances.len() * std::mem::size_of::<cgmath::Matrix4<f32>>();
+            let instance_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&instances), wgpu::BufferUsage::STORAGE_READ);
+
             let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 bindings: &[
                     wgpu::BindGroupLayoutEntry {
@@ -277,9 +292,17 @@ mod graphics {
                         ty: wgpu::BindingType::UniformBuffer {
                             dynamic: false,
                         },
-                    }
-                ],
-                label: Some("uniform_bind_group_layout"),
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStage::VERTEX,
+                    ty: wgpu::BindingType::StorageBuffer {
+                        dynamic: false,
+                        readonly: true,
+                    },
+            },
+            ],
+            label: Some("uniform_bind_group_layout"),
             });
 
             let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -292,9 +315,16 @@ mod graphics {
                             // FYI: you can share a single buffer between bindings.
                             range: 0..std::mem::size_of_val(&uniforms) as wgpu::BufferAddress,
                         }
+                    },
+                    wgpu::Binding {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &instance_buffer,
+                        range: 0..instances_buffer_size as wgpu::BufferAddress,
                     }
-                ],
-                label: Some("uniform_bind_group"),
+            },
+            ],
+            label: Some("uniform_bind_group"),
             });
 
             let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -349,6 +379,7 @@ mod graphics {
                 texture,
                 diffuse_bind_group,
                 camera,
+                instance_buffer,
                 uniforms,
                 uniform_buffer,
                 uniform_bind_group,
@@ -392,7 +423,7 @@ mod graphics {
                 render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
 //                render_pass.draw(0..VERTICES.len() as u32, 0..1);
-                render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+                render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..2);
             }
             self.queue.submit(&[encoder.finish()]);
         }
