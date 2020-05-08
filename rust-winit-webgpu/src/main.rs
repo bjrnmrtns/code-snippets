@@ -100,6 +100,43 @@ mod graphics {
 
             (Self { texture: diffuse_texture, view: diffuse_texture_view, sampler: diffuse_sampler }, cmd_buffer)
         }
+        const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.
+
+        pub fn create_depth_texture(device: &wgpu::Device, sc_desc: &wgpu::SwapChainDescriptor, label: &str) -> Self {
+            let size = wgpu::Extent3d { // 2.
+                width: sc_desc.width,
+                height: sc_desc.height,
+                depth: 1,
+            };
+            let desc = wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                array_layer_count: 1,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: Self::DEPTH_FORMAT,
+                usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT // 3.
+                    | wgpu::TextureUsage::SAMPLED
+                    | wgpu::TextureUsage::COPY_SRC,
+            };
+            let texture = device.create_texture(&desc);
+
+            let view = texture.create_default_view();
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor { // 4.
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                lod_min_clamp: -100.0,
+                lod_max_clamp: 100.0,
+                compare: wgpu::CompareFunction::LessEqual, // 5.
+            });
+
+            Self { texture, view, sampler }
+        }
     }
 
 
@@ -194,6 +231,7 @@ mod graphics {
         uniforms: Uniforms,
         uniform_buffer: wgpu::Buffer,
         uniform_bind_group: wgpu::BindGroup,
+        depth_texture: Texture,
         window_size: winit::dpi::PhysicalSize<u32>,
     }
 
@@ -280,7 +318,7 @@ mod graphics {
             let uniform_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&[uniforms]),
                                                                 wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST);
 
-            let instances = [Instance { model: cgmath::Matrix4::identity(), }, Instance { model: cgmath::Matrix4::from_translation(cgmath::Vector3 { x: 0.2 as f32, y: 0.2 as f32, z: 0.0 as f32}), }];
+            let instances = [Instance { model: cgmath::Matrix4::identity(), }, Instance { model: cgmath::Matrix4::from_translation(cgmath::Vector3 { x: 0.2 as f32, y: 0.2 as f32, z: -0.5 as f32}), }];
             let instances_buffer_size = instances.len() * std::mem::size_of::<cgmath::Matrix4<f32>>();
             let instance_buffer = device.create_buffer_with_data(bytemuck::cast_slice(&instances), wgpu::BufferUsage::STORAGE_READ);
 
@@ -357,7 +395,15 @@ mod graphics {
                     }
                 ],
                 primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                depth_stencil_state: None,
+                depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
+                    stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
+                    stencil_read_mask: 0,
+                    stencil_write_mask: 0,
+                }),
                 vertex_state: wgpu::VertexStateDescriptor {
                     index_format: wgpu::IndexFormat::Uint16,
                     vertex_buffers: &[Vertex::desc()],
@@ -366,7 +412,7 @@ mod graphics {
                 sample_mask: !0,
                 alpha_to_coverage_enabled: false,
             });
-
+            let depth_texture = Texture::create_depth_texture(&device, &sc_descriptor, "depth_texture");
             Self {
                 surface,
                 device,
@@ -383,6 +429,7 @@ mod graphics {
                 uniforms,
                 uniform_buffer,
                 uniform_bind_group,
+                depth_texture,
                 window_size: window.inner_size(),
             }
         }
@@ -391,6 +438,7 @@ mod graphics {
             self.window_size = size;
             self.sc_descriptor.width = size.width;
             self.sc_descriptor.height = size.height;
+            self.depth_texture = Texture::create_depth_texture(&self.device, &self.sc_descriptor, "depth_texture");
             self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_descriptor);
         }
 
@@ -415,7 +463,15 @@ mod graphics {
                             }
                         }
                     ],
-                    depth_stencil_attachment: None,
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                        attachment: &self.depth_texture.view,
+                        depth_load_op: wgpu::LoadOp::Clear,
+                        depth_store_op: wgpu::StoreOp::Store,
+                        clear_depth: 1.0,
+                        stencil_load_op: wgpu::LoadOp::Clear,
+                        stencil_store_op: wgpu::StoreOp::Store,
+                        clear_stencil: 0,
+                    }),
                 });
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
