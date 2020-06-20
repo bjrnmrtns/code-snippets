@@ -12,7 +12,7 @@ impl ClosureHolder {
 fn main() {
     let mut x = 3;
     let mut holder = ClosureHolder { closure: Box::new(|| { x = x + 1; }) };
-    println!("{}", x);
     holder.call();
+    println!("{}", x);
 }
 
