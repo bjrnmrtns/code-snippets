@@ -20,8 +20,8 @@ fn main() {
     let mut x = 3;
     let mut holder = ClosureHolder { closures: Vec::new(), };
     holder.add_closure(Box::new(|| { println!("hello"); }));
-    holder.add_closure2(Box::new(|| { x = x + 1; }));
+    holder.add_closure2(|| { x = x + 1; });
     holder.call_all();
-    println!("{}", x);
+    //println!("{}", x);
 }
 
