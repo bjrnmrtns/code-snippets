@@ -10,13 +10,17 @@ impl<'closure_lifetime> ClosureHolder<'closure_lifetime> {
     pub fn add_closure(&mut self, closure: Box<FnMut() + 'closure_lifetime>) {
         self.closures.push(closure);
     }
+
+    pub fn add_closure2<CLOSURE: FnMut() + 'closure_lifetime>(&mut self, closure: CLOSURE) {
+        self.closures.push(Box::new(closure));
+    }
 }
 
 fn main() {
     let mut x = 3;
     let mut holder = ClosureHolder { closures: Vec::new(), };
     holder.add_closure(Box::new(|| { println!("hello"); }));
-    holder.add_closure(Box::new(|| { x = x + 1; }));
+    holder.add_closure2(Box::new(|| { x = x + 1; }));
     holder.call_all();
     println!("{}", x);
 }
