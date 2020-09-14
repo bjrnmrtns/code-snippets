@@ -23,7 +23,7 @@ void WriteImage(Handle& handle, std::vector<unsigned char>& data, size_t width, 
 {
     FILE *fp = fopen("test.png", "wb");
     std::vector<png_bytep> rows(height, nullptr);
-    for(auto y = 0; y < width; y++) {
+    for(auto y = 0; y < height; y++) {
         rows[y] = &data[y * width];
     }
 
