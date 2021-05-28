@@ -1,50 +1,85 @@
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 
-struct Vertex {
-    x: f32,
-    y: f32,
-    z: f32,
+enum MeshLoadResult {
+    Quit,
+    Loaded(Mesh)
+}
+
+struct Mesh {
+    pub asset_id: u32,
+}
+
+impl Mesh {
+    pub fn new(id: u32) -> Self {
+        Self {
+            asset_id: id
+        }
+    }
+}
+
+enum ChunkLoadCommand {
+    Quit,
+    Load(u32)
 }
 
 #[derive(Default)]
-struct Mesh {
-    pub v: Vec<Vertex>,
-    pub i: Vec<i32>,
+struct MeshRegistry {
+    vs: Vec<Mesh>
 }
 
-struct Chunk {
-    pub id: (i32, i32, i32),
+#[derive(Default)]
+struct Assets {
+    pub assets: Vec<u32>,
 }
 
-impl Default for Chunk {
-    fn default() -> Self {
-        Self {
-            id: (0, 0, 0)
-        }
+impl Assets {
+    pub fn add(&mut self, asset: u32) {
+        self.assets.push(asset);
+    }
+}
+
+impl MeshRegistry {
+    pub fn add(&mut self, mesh: Mesh) {
+        self.vs.push(mesh);
     }
 }
 
 fn main() {
-    let (txworker, rxmain): (Sender<Mesh>, Receiver<Mesh>) = mpsc::channel();
-    let (txmain, rxworker): (Sender<Chunk>, Receiver<Chunk>) = mpsc::channel();
+    let mut mesh_registry = MeshRegistry::default();
+    let mut assets = Assets::default();
+    assets.add(0);
+    assets.add(1);
+    assets.add(2);
+    let (txworker, rxmain): (Sender<MeshLoadResult>, Receiver<MeshLoadResult>) = mpsc::channel();
+    let (txmain, rxworker): (Sender<ChunkLoadCommand>, Receiver<ChunkLoadCommand>) = mpsc::channel();
 
     let child = thread::spawn(move || {
         loop {
-            let chunk  = rxworker.recv().unwrap();
-            if chunk.id.0 == 99 {
-                break ();
-            } else {
-                txworker.send(Mesh::default()).unwrap();
+            match rxworker.recv().unwrap() {
+                ChunkLoadCommand::Quit => {txworker.send(MeshLoadResult::Quit); return ();},
+                ChunkLoadCommand::Load(asset_id) => {
+                    if let Some(asset_id) = assets.assets.iter().find(|x| **x == asset_id) {
+                        txworker.send(MeshLoadResult::Loaded(Mesh::new(*asset_id)));
+                    }
+                }
             }
         }
     });
     for i in 0..100 {
-        txmain.send(Chunk { id: (i, 0, 0) }).unwrap();
+        txmain.send(ChunkLoadCommand::Load(i)).unwrap();
     }
-    for i in 0..99 {
-        rxmain.recv().unwrap();
+    txmain.send(ChunkLoadCommand::Quit).unwrap();
+    loop {
+        std::thread::sleep( Duration::from_millis(100));
+        if let Ok(mesh_result) = rxmain.try_recv() {
+            match mesh_result {
+                MeshLoadResult::Quit => break,
+                MeshLoadResult::Loaded(mesh) => {mesh_registry.add(mesh)}
+            }
+        }
     }
     child.join().unwrap();
 }
